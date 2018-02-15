@@ -6,7 +6,24 @@ import lib.config as config
 from datetime import date
 import collections
 from collections import defaultdict
+from datetime import timedelta, date
 
+def daterange(start_date, end_date):
+    for n in range(int ((end_date - start_date).days)):
+        yield start_date + timedelta(n)
+
+def build_work_path(directory, day_iter):
+    year_dir = os.path.join(directory, str(day_iter.year))
+    month_dir = os.path.join(year_dir, '{:02d}'.format(day_iter.month))
+    return os.path.join(month_dir, '{:02d}'.format(day_iter.day))
+    
+def parse_date(date_str):
+    """
+        date_str(str): date string specification with format yyyy-mm-dd
+    """
+    split = date_str.split('-')
+    return date(int(split[0]), int(split[1]), int(split[2])) 
+    
 def linux_input(log_directory, channel_list, starting_date, ending_date):
     """  
         reads the IRC-Logs files in linux environment
@@ -15,63 +32,54 @@ def linux_input(log_directory, channel_list, starting_date, ending_date):
         log_directory (str): Location of the logs (Assumed to be arranged in directory structure as : <year>/<month>/<day>/<log-file-for-channel>.txt)
         here log_directory will have the directory where all the folders 2013 2014 2015 etc are stored
         channels_list (list): list of channels to be perform analysis on OR one element list ["ALL"] to perform analyis on all channels in the folder
-        starting_date(str): Starting date in the format yyyy-mm-dd
-        ending_date(str)  : Ending date in the format yyyy-mm-dd
+        starting_date(date object): Starting date 
+        ending_date(date object)  : Ending date in the format yyyy-mm-dd
 
     Returns:
         logs (dict) : dictionary with key(str) as 'yyyy-mm-dd' and value as another dictionary {"data":day_data,"channel":channel_name}
 
     """
-
-    #splitting starting date and ending date
-    (starting_year, starting_month, starting_day) = [int(x) for x in starting_date.split('-')]
-    (ending_year, ending_month, ending_day) = [int(x) for x in ending_date.split('-')]
+    start_date = parse_date(starting_date)
+    end_date = parse_date(ending_date)
     
     logs = defaultdict(list)
     
-    #enter year folder
-    for year_iterator in range(starting_year, ending_year + 1):  
-        #enter month folders
-        for month_iterator in range(starting_month if year_iterator == starting_year else 1, ending_month + 1 if year_iterator == ending_year else 13):
-            extra0 = "0" if month_iterator < 10 else ""        
-            #enter day folder
-            for day_iterator in range(starting_day if (month_iterator == starting_month and year_iterator == starting_year) else 1, ending_day + 1 if (month_iterator == ending_month and year_iterator==ending_year) else 32):
-                extra0_2 = "0" if day_iterator < 10 else ""
-                work_path = log_directory+str(year_iterator)+"/"+extra0 + \
-                    str(month_iterator) + "/" + extra0_2 + \
-                    str(day_iterator) + "/"
-                #select relevant channels
-                if not os.path.exists(work_path):
-                    if not((month_iterator == 2 and (day_iterator == 29 or day_iterator == 30 or day_iterator == 31)) or ((month_iterator == 4 or month_iterator == 6 or month_iterator == 9 or month_iterator == 11) and day_iterator == 31)):
-                        print "[Error | io/linuxInput] Path", work_path, "doesn't exist"
-                else:
-                    for channel_searched in os.listdir(work_path):
-                        channel_name = channel_searched[:-4]
-                        if channel_name in channel_list or (len(channel_list) == 1 and channel_list[0] == "ALL"):
-                            file_path = work_path + channel_name + ".txt"
-                            if not os.path.exists(file_path):
-                                print "[Error | io/linuxInput] Channel " + file_path + " doesn't exist"
-                                continue
-                            with open(file_path) as f:
-                                """ day_data stores all the lines of the file channel_name """
-                                if config.DEBUGGER:
-                                    print "Working on: " + file_path
-                                
-                                day_data = f.readlines()             
-                            
-                            f.close()
-
-                            date_key = date(year_iterator, month_iterator, day_iterator)
-                            value = {
-                                "log_data": day_data, 
-                                "auxiliary_data": {
-                                        "channel": channel_name,
-                                        "year": year_iterator,
-                                        "month": month_iterator,
-                                        "day": day_iterator
-                                    }
-                                }
+    for day_iter in daterange(start_date, end_date):
         
-                            logs[date_key].append(value)
+        work_path = build_work_path(log_directory, day_iter)
+        
+        if not os.path.exists(work_path):
+            print "Log doest not exist for %s", work_path
+        else:
+            if (len(channel_list) == 1 and channel_list[0] == "ALL"):
+                channel_list = [channel[:-4] for channel in os.listdir(work_path)]
+            
+            for channel in channel_list:
+                file_path = os.path.join(work_path, channel + '.txt')
+                    
+                if not os.path.exists(file_path):
+                    print "[Error | io/linuxInput] Channel " + file_path + " doesn't exist"
+                    continue
+                    
+                with open(file_path) as f:
+                    """ day_data stores all the lines of the file channel_name """
+                    if config.DEBUGGER:
+                        print "Working on: " + file_path
+                    
+                    day_data = f.readlines()             
+                
+                f.close()
+
+                value = {
+                    "log_data": day_data, 
+                    "auxiliary_data": {
+                            "channel": channel,
+                            "year": day_iter.year,
+                            "month": day_iter.month,
+                            "day": day_iter.day
+                        }
+                    }
+
+                logs[day_iter].append(value)
                     
     return collections.OrderedDict(sorted(logs.items()))
